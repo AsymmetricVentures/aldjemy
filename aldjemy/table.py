@@ -9,7 +9,7 @@ except ImportError:
     from django.db.models.loading import AppCache
     django_apps = AppCache()
 
-from aldjemy.types import simple, foreign_key, varchar
+from aldjemy.types import simple, foreign_key, varchar, EnumTypeAdapter
 
 
 DATA_TYPES = {
@@ -73,8 +73,12 @@ def generate_tables(metadata):
                 internal_type = field.get_internal_type()
             except AttributeError:
                 continue
+            
+            if internal_type == 'SmallIntegerField' and hasattr(field, 'enum'):
+                columns.append(Column(field.column,
+                        EnumTypeAdapter(field.enum), primary_key = field.primary_key))
 
-            if internal_type in DATA_TYPES:
+            elif internal_type in DATA_TYPES:
                 typ = DATA_TYPES[internal_type](field)
                 if not isinstance(typ, (list, tuple)):
                     typ = [typ]

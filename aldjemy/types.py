@@ -22,3 +22,21 @@ def foreign_key(field):
     target_table = target.db_table
     target_pk = target.pk.column
     return types.Integer, ForeignKey('%s.%s' % (target_table, target_pk))
+
+class EnumTypeAdapter(types.TypeDecorator):
+    impl = types.SMALLINT
+
+    def __init__(self, enum = None, *args, **kwargs):
+        self.enum = enum
+        super().__init__(*args, **kwargs)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return int(value)
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = self.enum(value)
+        return value
+
