@@ -2,6 +2,7 @@
 
 from sqlalchemy import types, Column, Table
 
+import django
 from django.conf import settings
 try:
     from django.apps import apps as django_apps
@@ -93,8 +94,10 @@ def generate_tables(metadata):
             except AttributeError:
                 continue
             
-            if internal_type == 'SmallIntegerField' and hasattr(field, 'enum'):
-                columns.append(Column(field.column,
+            column = _get_field_column(field, model)
+            
+            if internal_type.endswith('IntegerField') and hasattr(field, 'enum'):
+                columns.append(Column(column,
                         EnumTypeAdapter(field.enum), primary_key = field.primary_key))
 
             elif internal_type in DATA_TYPES:
