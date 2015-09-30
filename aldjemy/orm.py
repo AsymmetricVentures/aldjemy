@@ -1,29 +1,47 @@
+import threading
+
 from sqlalchemy import orm
 import django
 from django.db.models.fields.related import (ForeignKey, OneToOneField,
         ManyToManyField)
-from django.db import connections, router
+from django.db import router
 from django.db.backends import signals
 from django.conf import settings
 
 from .core import get_tables, get_engine, Cache
 from .table import get_django_models
 
+_thread_global = threading.local()
 
-def get_session(alias='default'):
-    connection = connections[alias]
-    if not hasattr(connection, 'sa_session'):
-        session = orm.sessionmaker(bind=get_engine(alias))
-        connection.sa_session = session()
-    return connection.sa_session
+def get_sess_class(alias = 'default'):
+    if not hasattr(_thread_global, 'Session'):
+        Session = orm.sessionmaker(bind = get_engine(alias))
+        setattr(_thread_global, 'Session', Session)
+    return getattr(_thread_global, 'Session')
 
+def get_session(alias = 'default'):
+    if not hasattr(_thread_global, 'session'):
+        _thread_global.session = {}
+    sess = getattr(_thread_global, 'session')
+    sa_session = sess.setdefault(alias, None)
+    if sa_session is None:
+        sa_session = get_sess_class(alias)
+        _thread_global.session[alias] = sa_session()
+    return sa_session
+
+def close_session(alias = 'default'):
+    if not hasattr(_thread_global, 'session'):
+        _thread_global.session = {}
+    sa_session = _thread_global.session.get(alias)
+    if sa_session is not None:
+        sa_session.close()
+        _thread_global.session[alias] = None
 
 def new_session(sender, connection, **kw):
     if connection.alias in settings.DATABASES:
-        get_session(alias=connection.alias)
+        get_session(alias = connection.alias)
 
 signals.connection_created.connect(new_session)
-
 
 def _extract_model_attrs(model, sa_models):
     tables = get_tables()
