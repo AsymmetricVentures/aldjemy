@@ -1,30 +1,48 @@
 import warnings
+import threading
+
 from sqlalchemy import orm
 import django
 from django.db.models.fields.related import (ForeignKey, OneToOneField,
         ManyToManyField)
-from django.db import connections, router
+from django.db import router
 from django.db.backends import signals
 from django.conf import settings
 
 from .core import get_tables, get_engine, Cache
 from .table import get_django_models
 
+_thread_global = threading.local()
 
-def get_session(alias='default'):
-    connection = connections[alias]
-    if not hasattr(connection, 'sa_session'):
-        session = orm.sessionmaker(bind=get_engine(alias))
-        connection.sa_session = session()
-    return connection.sa_session
+def get_sess_class(alias = 'default'):
+    if not hasattr(_thread_global, 'Session'):
+        Session = orm.sessionmaker(bind = get_engine(alias))
+        setattr(_thread_global, 'Session', Session)
+    return getattr(_thread_global, 'Session')
 
+def get_session(alias = 'default'):
+    if not hasattr(_thread_global, 'session'):
+        _thread_global.session = {}
+    sess = getattr(_thread_global, 'session')
+    sa_session = sess.setdefault(alias, None)
+    if sa_session is None:
+        sa_session = get_sess_class(alias)
+        _thread_global.session[alias] = sa_session()
+    return sa_session
+
+def close_session(alias = 'default'):
+    if not hasattr(_thread_global, 'session'):
+        _thread_global.session = {}
+    sa_session = _thread_global.session.get(alias)
+    if sa_session is not None:
+        sa_session.close()
+        _thread_global.session[alias] = None
 
 def new_session(sender, connection, **kw):
     if connection.alias in settings.DATABASES:
-        get_session(alias=connection.alias)
+        get_session(alias = connection.alias)
 
 signals.connection_created.connect(new_session)
-
 
 def get_remote_field(foreign_key):
     if django.VERSION >= (1, 9):
@@ -63,7 +81,7 @@ def _extract_model_attrs(model, sa_models):
             if not isinstance(fk, OneToOneField):
                 backref = backref + '_set'
         elif backref and isinstance(fk, OneToOneField):
-            backref = orm.backref(backref, uselist=False)
+            backref = orm.backref(backref, uselist = False)
 
         kw = {}
         if isinstance(fk, ManyToManyField):
@@ -72,20 +90,20 @@ def _extract_model_attrs(model, sa_models):
             sec_column = fk.m2m_column_name()
             p_sec_column = fk.m2m_reverse_name()
             kw.update(
-                secondary=sec_table,
-                primaryjoin=(sec_table.c[sec_column] == table.c[model_pk]),
-                secondaryjoin=(sec_table.c[p_sec_column] == p_table.c[p_name])
+                secondary = sec_table,
+                primaryjoin = (sec_table.c[sec_column] == table.c[model_pk]),
+                secondaryjoin = (sec_table.c[p_sec_column] == p_table.c[p_name])
                 )
             if fk.model() != model:
                 backref = None
         else:
             kw.update(
-                foreign_keys=[table.c[fk.column]],
-                primaryjoin=(table.c[fk.column] == p_table.c[p_name]),
-                remote_side=p_table.c[p_name],
+                foreign_keys = [table.c[fk.column]],
+                primaryjoin = (table.c[fk.column] == p_table.c[p_name]),
+                remote_side = p_table.c[p_name],
                 )
             if backref:
-                kw.update(backref=backref)
+                kw.update(backref = backref)
         attrs[fk.name] = orm.relationship(
                 sa_models[parent_model],
                 **kw
@@ -108,7 +126,7 @@ def prepare_models():
 
         table_name = model._meta.db_table
         mixin = getattr(model, 'aldjemy_mixin', None)
-        bases = (mixin, BaseSQLAModel) if mixin else (BaseSQLAModel, )
+        bases = (mixin, BaseSQLAModel) if mixin else (BaseSQLAModel,)
         table = tables[table_name]
 
         # because querying happens on sqlalchemy side, we can use only one
