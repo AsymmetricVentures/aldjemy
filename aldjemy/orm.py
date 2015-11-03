@@ -26,8 +26,7 @@ def get_session(alias = 'default'):
     sess = getattr(_thread_global, 'session')
     sa_session = sess.setdefault(alias, None)
     if sa_session is None:
-        sa_session = get_sess_class(alias)
-        _thread_global.session[alias] = sa_session()
+        _thread_global.session[alias] = sa_session = get_sess_class(alias)()
     return sa_session
 
 def close_session(alias = 'default'):
