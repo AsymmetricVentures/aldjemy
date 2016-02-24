@@ -63,18 +63,28 @@ def _extract_model_attrs(model, sa_models):
             continue
 
         if django.VERSION < (1, 8):
-            parent_model = fk.related.parent_model
+            fk_related = fk.related
+            parent_model = fk_related.parent_model._meta
+        elif django.VERSION < (1, 9):
+            fk_related = fk.rel
+            parent_model = fk_related.model._meta
         else:
-            parent_model = get_remote_field(fk).model
+            fk_related = fk.remote_field
+            parent_model = fk_related.model._meta
+        
+        if django.VERSION < (1, 9):
+            fk_rel = fk.rel
+        else:
+            fk_rel = fk.remote_field
 
         parent_model_meta = parent_model._meta
 
         p_table = tables[parent_model_meta.db_table]
         p_name = parent_model_meta.pk.column
 
-        disable_backref = fk.rel.related_name and fk.rel.related_name.endswith('+')
-        backref = (fk.rel.related_name.lower().strip('+')
-                   if fk.rel.related_name else None)
+        disable_backref = fk_rel.related_name and fk_rel.related_name.endswith('+')
+        backref = (fk_rel.related_name.lower().strip('+')
+                   if fk_rel.related_name else None)
         if not backref and not disable_backref:
             backref = model._meta.object_name.lower()
             if not isinstance(fk, OneToOneField):
@@ -85,7 +95,7 @@ def _extract_model_attrs(model, sa_models):
         kw = {}
         if isinstance(fk, ManyToManyField):
             model_pk = model._meta.pk.column
-            sec_table = tables[get_remote_field(fk).field.m2m_db_table()]
+            sec_table = tables[fk_related.field.m2m_db_table()]
             sec_column = fk.m2m_column_name()
             p_sec_column = fk.m2m_reverse_name()
             kw.update(

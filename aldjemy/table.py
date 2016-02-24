@@ -21,15 +21,15 @@ DATA_TYPES = {
     'CommaSeparatedIntegerField': varchar,
     'DateField':         simple(types.Date),
     'DateTimeField':     simple(types.DateTime),
-    'DecimalField':      lambda x: types.Numeric(scale=x.decimal_places,
-                                                 precision=x.max_digits),
+    'DecimalField':      lambda x: types.Numeric(scale = x.decimal_places,
+                                                 precision = x.max_digits),
     'DurationField':     simple(types.Interval),
     'FileField':         varchar,
     'FilePathField':     varchar,
     'FloatField':        simple(types.Float),
     'IntegerField':      simple(types.Integer),
     'BigIntegerField':   simple(types.BigInteger),
-    'IPAddressField':    lambda field: types.CHAR(length=15),
+    'IPAddressField':    lambda field: types.CHAR(length = 15),
     'NullBooleanField':  simple(types.Boolean),
     'OneToOneField':     foreign_key,
     'ForeignKey':        foreign_key,
@@ -54,11 +54,33 @@ def get_all_django_models():
     new_models = []
     for model in models:
         for field in model._meta.many_to_many:
-            new_model = field.rel.through
+            if django.VERSION < (1, 9):
+                new_model = field.rel.through
+            else:
+                new_model = field.remote_field.through
             if new_model:
                 new_models.append(new_model)
     return models + new_models
 
+if django.VERSION < (1, 8):
+    _get_fields_with_model = lambda model: model._meta.get_fields_with_model()
+    _get_field_column = lambda field: field.column
+else:
+    def _get_fields_with_model(model):
+        for f in model._meta.get_fields():
+            if not f.is_relation or f.one_to_one or (f.many_to_one and f.related_model):
+                yield (f, f.model if f.model != model else None)
+    
+    def _get_field_column(field, model):
+        if field.many_to_many:
+            if field.model == model:
+                return field.target_field.column
+            elif field.related_model == model:
+                return field.remote_field.column
+        elif not hasattr(field, 'column'):
+            if hasattr(field, 'field') and hasattr(field.field, 'column'):
+                return field.field.column
+        return field.column
 
 def generate_tables(metadata):
     models = get_all_django_models()
@@ -67,17 +89,7 @@ def generate_tables(metadata):
         if name in metadata.tables or model._meta.proxy:
             continue
         columns = []
-        if django.VERSION < (1, 9):
-            model_fields = model._meta.get_fields_with_model()
-        else:
-            model_fields = [
-                (f, f.model if f.model != model else None)
-                for f in model._meta.get_fields()
-                if not f.is_relation
-                    or f.one_to_one
-                    or (f.many_to_one and f.related_model)
-            ]
-        for field, parent_model in model_fields:
+        for field, parent_model in _get_fields_with_model(model):
             if parent_model:
                 continue
 
@@ -85,12 +97,14 @@ def generate_tables(metadata):
                 internal_type = field.get_internal_type()
             except AttributeError:
                 continue
+            
+            column = _get_field_column(field, model)
 
             if internal_type in DATA_TYPES and hasattr(field, 'column'):
                 typ = DATA_TYPES[internal_type](field)
                 if not isinstance(typ, (list, tuple)):
                     typ = [typ]
-                columns.append(Column(field.column,
-                        *typ, primary_key=field.primary_key))
+                columns.append(Column(column,
+                        *typ, primary_key = getattr(field, 'primary_key', False)))
 
         Table(name, metadata, *columns)
