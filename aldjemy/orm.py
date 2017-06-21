@@ -64,13 +64,13 @@ def _extract_model_attrs(model, sa_models):
 
         if django.VERSION < (1, 8):
             fk_related = fk.related
-            parent_model = fk_related.parent_model._meta
+            parent_model = fk_related.parent_model
         elif django.VERSION < (1, 9):
             fk_related = fk.rel
-            parent_model = fk_related.model._meta
+            parent_model = fk_related.model
         else:
             fk_related = fk.remote_field
-            parent_model = fk_related.model._meta
+            parent_model = fk_related.model
         
         if django.VERSION < (1, 9):
             fk_rel = fk.rel
@@ -78,7 +78,6 @@ def _extract_model_attrs(model, sa_models):
             fk_rel = fk.remote_field
 
         parent_model_meta = parent_model._meta
-
         p_table = tables[parent_model_meta.db_table]
         p_name = parent_model_meta.pk.column
 
